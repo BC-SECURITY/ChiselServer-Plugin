@@ -28,3 +28,6 @@ Prerequisites:
 2. Plugins are automatically loaded into Empire as of 3.4.0, otherwise run ```plugin ChiselServer```
 
 ![image](https://user-images.githubusercontent.com/20302208/95636737-b5dac780-0a44-11eb-9f82-34dcb66c24fe.png)
+
+## Contributions
+Plugin created by [Kevin Clark](https://gitlab.com/KevinJClark/invoke-sharpchisel/)
