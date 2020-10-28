@@ -3,7 +3,7 @@ The SharpChisel Plugin runs the Chisel server for Invoke-SharpChisel. The Powers
 -- client only to save space. This plugin is entirely contained in [Empire](https://github.com/BC-SECURITY/Empire/)
 and runs in the background.
 
-`sharpchisel <start|stop> [port]'
+`sharpchisel <start|stop> [port]`
 
 ![image](https://user-images.githubusercontent.com/20302208/97376340-5a00a300-187a-11eb-902d-ec9b75389beb.png)
 
