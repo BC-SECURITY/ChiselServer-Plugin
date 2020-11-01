@@ -22,7 +22,8 @@ class Plugin(Plugin):
         self.chisel_proc = None
 
         self.info = {
-                        'Name': 'ChiselServer',
+                        # At the moment this much match the do_ command
+                        'Name': 'chiselserver',
 
                         'Author': ['@kevin'],
 
@@ -36,17 +37,17 @@ class Plugin(Plugin):
                     },
 
         self.options = {
-            'status': {
-                'Description': '<start/stop/status>',
-                'Required': True,
-                'Value': 'start'
-            },
-            'port': {
-                'Description': 'Port number.',
-                'Required': True,
-                'Value': '8080'
-            },
-        }
+                        'status': {
+                            'Description': '<start/stop/status>',
+                            'Required': True,
+                            'Value': 'start'
+                        },
+                        'port': {
+                            'Description': 'Port number.',
+                            'Required': True,
+                            'Value': '8080'
+                        },
+                    }
 
     def execute(self, command):
         # This is for parsing commands through the api
