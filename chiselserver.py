@@ -1,6 +1,7 @@
 from __future__ import print_function
-from lib.common.plugins import Plugin
-import lib.common.helpers as helpers
+
+from empire.server.common.plugins import Plugin
+import empire.server.common.helpers as helpers
 
 import subprocess
 import platform
@@ -14,7 +15,7 @@ class Plugin(Plugin):
 
     def onLoad(self):
         print(helpers.color("[*] Loading Chisel server plugin"))
-
+        self.main_menu = None
         self.enabled = False
         self.socks_connections = {}
         self.connection_times = {}
@@ -27,7 +28,9 @@ class Plugin(Plugin):
 
                         'Author': ['@kevin'],
 
-                        'Description': ('Chisel server for invoke_sharpchisel module.'),
+                        'Description': ('Chisel server for invoke_sharpchisel module. '
+                                        'Requires: chisel server binaries to be placed in the data/misc directory with '
+                                        'names chiselserver_linux and chiselserver_mac'),
 
                         'Software': '',
 
@@ -40,7 +43,9 @@ class Plugin(Plugin):
                         'status': {
                             'Description': '<start/stop/status>',
                             'Required': True,
-                            'Value': 'start'
+                            'Value': 'start',
+                            'SuggestedValues': ['start', 'stop', 'status'],
+                            'Strict': True
                         },
                         'port': {
                             'Description': 'Port number.',
@@ -55,9 +60,10 @@ class Plugin(Plugin):
             # essentially switches to parse the proper command to execute
             self.options['status']['Value'] = command['status']
             self.options['port']['Value'] = command['port']
-            results = self.do_chiselserver('')
+            results = self.do_chiselserver()
             return results
-        except:
+        except Exception as e:
+            print(e)
             return False
 
     def register(self, mainMenu):
@@ -68,8 +74,9 @@ class Plugin(Plugin):
 
         mainMenu.__class__.do_chiselserver = self.do_chiselserver
         self.installPath = mainMenu.installPath
+        self.main_menu = mainMenu
 
-    def do_chiselserver(self, args):
+    def do_chiselserver(self):
         """
         Check if the Chisel server is already running.
 
@@ -100,56 +107,47 @@ class Plugin(Plugin):
                 except:
                     # Capture error message or warning
                     error_message = line[line.find('session#' + session_number) + len('session#' + session_number) + 2:]
-                    print(helpers.color("[!] Warning: " + error_message))
+                    self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[!] Warning: " + error_message)
 
         # Check if the Chisel server is already running
-        if not self.chisel_proc or self.chisel_proc.poll():
-            self.enabled = False
-        else:
+        if self.chisel_proc:
             self.enabled = True
-
-        # If no arguments then run with defaults. API will pass arguments and still give this message.
-        if not args:
-            print(helpers.color("[!] Usage: chiselserver <start|stop|status> [port]"))
-            self.start = self.options['status']['Value']
-            self.port = self.options['port']['Value']
-            print(helpers.color("[+] Defaults: chiselserver " + self.start + " " + self.port))
         else:
-            self.start = args.split(" ")[0]
+            self.enabled = False
+
+        # API will pass arguments and still give this message.
+        self.start = self.options['status']['Value']
+        self.port = self.options['port']['Value']
 
         if self.start == "status":
             if self.enabled:
                 register_sessions(get_output_lines(self.chisel_proc.stderr))
-                print(helpers.color("[*] Chisel server is enabled and listening on port %s" % self.port))
+                self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[*] Chisel server is enabled and "
+                                                                             "listening on port %s" % self.port)
                 if not self.socks_connections:
-                    print(helpers.color("[*] No connected Chisel clients!"))
+                    self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[*] No connected Chisel clients!")
                 else:
-                    print("  Session ID\tConnection Time\t\tConnection")
-                    print("  ----------\t---------------\t\t----------")
+                    self.main_menu.plugin_socketio_message(self.info[0]['Name'],
+                                                           "  Session ID\tConnection Time\t\tConnection" +
+                                                           "\n  ----------\t---------------\t\t----------")
                     for session in self.connection_times.keys():
-                        print("  %s       \t%s  \t%s" % (
-                            session, self.connection_times[session], self.socks_connections[session]))
-                    print()
-
+                        self.main_menu.plugin_socketio_message(self.info[0]['Name'], "  %s       \t%s  \t%s" % (
+                            session, self.connection_times[session], self.socks_connections[session]) + "\n")
             else:
-                print(helpers.color("[*] Chisel server is disabled"))
+                self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[!] Chisel server is disabled")
 
         elif self.start == "stop":
             if self.enabled:
                 self.chisel_proc.kill()
                 self.socks_connections = {}
                 self.connection_times = {}
-                print(helpers.color("[*] Stopped Chisel server"))
+                self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[!] Stopped Chisel server")
             else:
-                print(helpers.color("[!] Chisel server is already stopped"))
+                self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[!] Chisel server is already stopped")
 
         elif self.start == "start":
             if not self.enabled:
-                try:
-                    self.port = args.split(" ")[1]
-                except:
-                    self.port = self.options['port']['Value']
-
+                self.port = self.options['port']['Value']
                 if platform.system() == "Darwin":
                     self.binary = "chiselserver_mac"
 
@@ -157,15 +155,18 @@ class Plugin(Plugin):
                     self.binary = "chiselserver_linux"
 
                 else:
-                    print(helpers.color("[!] Chisel server unsupported platform: %s" % platform.system()))
+                    self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[!] Chisel server unsupported "
+                                                                                 "platform: %s" % platform.system())
                     return
 
                 self.fullPath = self.installPath + "/data/misc/" + self.binary
                 if not os.path.exists(self.fullPath):
-                    print(helpers.color("[!] Chisel server binary does not exist: %s" % self.fullPath))
+                    self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[!] Chisel server binary does not "
+                                                                                 "exist: %s" % self.fullPath)
                     return
                 elif not os.access(self.fullPath, os.X_OK):
-                    print(helpers.color("[*] Chisel server binary does not have execute permission -- Setting it now"))
+                    self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[*] Chisel server binary does not have"
+                                                                                 " execute permission -- Setting it now")
                     mode = os.stat(self.fullPath).st_mode
                     mode += 0o100  # Octal 100
                     os.chmod(self.fullPath, mode)
@@ -173,12 +174,12 @@ class Plugin(Plugin):
                 chisel_cmd = [self.fullPath, "server", "--reverse", "--port", self.port]
                 self.chisel_proc = subprocess.Popen(chisel_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                                     bufsize=1, universal_newlines=True)
-                print(helpers.color("[+] Chisel server started and listening on http://0.0.0.0:%s" % self.port))
+                self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[+] Chisel server started and listening on http://0.0.0.0:%s" % self.port)
             else:
-                print(helpers.color("[!] Chisel server is already started"))
+                self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[!] Chisel server is already started")
 
         else:
-            print(helpers.color("[!] Usage: chiselserver <start|stop|status> [port]"))
+            self.main_menu.plugin_socketio_message(self.info[0]['Name'], "[!] Usage: chiselserver <start|stop|status> [port]")
 
     def shutdown(self):
         """
