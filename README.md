@@ -10,7 +10,7 @@ and [SharpChisel](https://github.com/shantanu561993/SharpChisel).
 
 ## Install
 Prerequisites:
-- Empire >= 4.0.0
+- Empire >= 4.3
 
 1. Git clone the ChiselServer-Plugin repo into the plugins folder.
 
