@@ -12,14 +12,9 @@ and [SharpChisel](https://github.com/shantanu561993/SharpChisel).
 Prerequisites:
 - Empire >= 4.0.0
 
-1. Add chiselserver.py to plugins folder of Empire.
+1. Git clone the ChiselServer-Plugin repo into the plugins folder.
 
-![image](https://user-images.githubusercontent.com/20302208/120246969-b4098280-c226-11eb-9345-4ff994ee5312.png)
-
-2. Add [Chisel binaries](https://github.com/jpillora/chisel/releases) to the /empire/server/data/misc folder. Files must be labeled as chiselserver_mac or chiselserver_linux 
-   depending on your platform.
-
-![image](https://user-images.githubusercontent.com/20302208/120248850-a277a900-c22d-11eb-87e6-df3220089444.png)
+![image](https://user-images.githubusercontent.com/20302208/143662717-651f0220-b4de-4bc6-832a-5444c9ace2e6.png)
 
 ## Usage
 ### Client
