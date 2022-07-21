@@ -64,7 +64,7 @@ class Plugin(Plugin):
         (meant to be overriden by child)
         """
         try:
-            results = self.do_chiselserver()
+            results = self.do_chiselserver(command)
             return results
         except Exception as e:
             print(e)
@@ -79,7 +79,7 @@ class Plugin(Plugin):
         self.installPath = mainMenu.installPath
         self.main_menu = mainMenu
 
-    def do_chiselserver(self):
+    def do_chiselserver(self, command):
         """
         Launch chisel server
         """
@@ -117,8 +117,8 @@ class Plugin(Plugin):
             self.enabled = False
 
         # API will pass arguments and still give this message.
-        self.start = self.options['status']['Value']
-        self.port = self.options['port']['Value']
+        self.start = command['status']
+        self.port = command['port']
 
         if self.start == "status":
             if self.enabled:
@@ -148,7 +148,7 @@ class Plugin(Plugin):
 
         elif self.start == "start":
             if not self.enabled:
-                self.port = self.options['port']['Value']
+                self.port = command['port']
                 if platform.system() == "Darwin":
                     self.binary = "chiselserver_darwin"
 
