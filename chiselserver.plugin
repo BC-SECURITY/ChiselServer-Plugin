@@ -1,21 +1,18 @@
 from __future__ import print_function
 
-from empire.server.core.plugin_service import PluginService
-from empire.server.common.plugins import Plugin
-import empire.server.common.helpers as helpers
-
-import subprocess
-import platform
 import os
+import platform
 import select
+import subprocess
+
+import empire.server.common.helpers as helpers
+from empire.server.common.plugins import Plugin
+from empire.server.core.plugin_service import PluginService
 
 
 # REQUIRES chisel server binaries to be placed in the data/misc directory with names chiselserver_linux and chiselserver_mac
 class Plugin(Plugin):
-    description = "Chisel server plugin."
-
     def onLoad(self):
-        print(helpers.color("[*] Loading Chisel server plugin"))
         self.main_menu = None
         self.enabled = False
         self.socks_connections = {}
@@ -27,11 +24,13 @@ class Plugin(Plugin):
                         # At the moment this much match the do_ command
                         'Name': 'chiselserver',
 
-                        'Authors': [{
-                            'Name': '',
-                            'Link': '',
-                            'Handle': '@kevin',
-                        }],
+                        'Authors': [
+                            {
+                                'Name': 'Kevin Clark',
+                                'Link': 'https://twitter.com/GuhnooPlusLinux',
+                                'Handle': '@kevin',
+                            }
+                        ],
 
                         'Description': ('Chisel server for invoke_sharpchisel module. '
                                         'Requires: chisel server binaries to be placed in the data/misc directory with '
