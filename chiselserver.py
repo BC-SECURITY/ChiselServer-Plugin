@@ -1,4 +1,4 @@
-
+import contextlib
 import os
 import platform
 import select
@@ -77,7 +77,7 @@ class Plugin(BasePlugin):
                     connection = line.split(": ")[3]
                     self.socks_connections[session_number] = connection
                     self.connection_times[session_number] = time
-                except:
+                except Exception:
                     # Capture error message or warning
                     error_message = line[
                         line.find("session#" + session_number)
@@ -116,11 +116,10 @@ class Plugin(BasePlugin):
                         "  Session ID\tConnection Time\t\tConnection"
                         + "\n  ----------\t---------------\t\t----------",
                     )
-                    for session in self.connection_times.keys():
+                    for session in self.connection_times:
                         self.plugin_service.plugin_socketio_message(
                             self.info["Name"],
-                            "  %s       \t%s  \t%s"
-                            % (
+                            "  {}       \t{}  \t{}".format(
                                 session,
                                 self.connection_times[session],
                                 self.socks_connections[session],
@@ -209,7 +208,5 @@ class Plugin(BasePlugin):
         """
         Kills additional processes that were spawned
         """
-        try:
+        with contextlib.suppress(Exception):
             self.chisel_proc.kill()
-        except:
-            pass
