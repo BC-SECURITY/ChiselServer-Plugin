@@ -1,0 +1,15 @@
+name: chiselserver
+authors:
+  - name: Kevin Clark
+    link: https://twitter.com/GuhnooPlusLinux
+    handle: '@kevin'
+description: >
+  Chisel server for invoke_sharpchisel module.
+  Requires: chisel server binaries to be placed in the data/misc directory with
+  names chiselserver_linux and chiselserver_mac
+software:
+techniques:
+  - T1090
+comments:
+  - https://gitlab.com/KevinJClark/invoke-sharpchisel/
+main: chiselserver.py
