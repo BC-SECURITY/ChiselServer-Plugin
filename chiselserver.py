@@ -4,8 +4,8 @@ import platform
 import select
 import subprocess
 
-from empire.server.core.plugins import BasePlugin
 from empire.server.core.plugin_service import PluginService
+from empire.server.core.plugins import BasePlugin
 
 
 # REQUIRES chisel server binaries to be placed in the data/misc directory with names chiselserver_linux and chiselserver_mac
@@ -119,11 +119,7 @@ class Plugin(BasePlugin):
                     for session in self.connection_times:
                         self.plugin_service.plugin_socketio_message(
                             self.info["Name"],
-                            "  {}       \t{}  \t{}".format(
-                                session,
-                                self.connection_times[session],
-                                self.socks_connections[session],
-                            )
+                            f"  {session}       \t{self.connection_times[session]}  \t{self.socks_connections[session]}"
                             + "\n",
                         )
             else:
