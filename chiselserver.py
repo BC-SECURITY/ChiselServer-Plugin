@@ -104,7 +104,7 @@ class Plugin(BasePlugin):
                 self.plugin_service.plugin_socketio_message(
                     self.info["Name"],
                     "[*] Chisel server is enabled and "
-                    "listening on port %s" % self.port,
+                    f"listening on port {self.port}",
                 )
                 if not self.socks_connections:
                     self.plugin_service.plugin_socketio_message(
@@ -153,7 +153,7 @@ class Plugin(BasePlugin):
                     self.plugin_service.plugin_socketio_message(
                         self.info["Name"],
                         "[!] Chisel server unsupported "
-                        "platform: %s" % platform.system(),
+                        f"platform: {platform.system()}",
                     )
                     return
 
@@ -163,8 +163,7 @@ class Plugin(BasePlugin):
                 if not os.path.exists(self.fullPath):
                     self.plugin_service.plugin_socketio_message(
                         self.info["Name"],
-                        "[!] Chisel server binary does not "
-                        "exist: %s" % self.fullPath,
+                        "[!] Chisel server binary does not " f"exist: {self.fullPath}",
                     )
                     return
                 elif not os.access(self.fullPath, os.X_OK):
@@ -187,8 +186,7 @@ class Plugin(BasePlugin):
                 )
                 self.plugin_service.plugin_socketio_message(
                     self.info["Name"],
-                    "[+] Chisel server started and listening on http://0.0.0.0:%s"
-                    % self.port,
+                    f"[+] Chisel server started and listening on http://0.0.0.0:{self.port}",
                 )
             else:
                 self.plugin_service.plugin_socketio_message(
