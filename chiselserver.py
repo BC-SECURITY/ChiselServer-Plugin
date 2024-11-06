@@ -3,204 +3,129 @@ import os
 import platform
 import select
 import subprocess
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, override
 
-from empire.server.core.plugin_service import PluginService
+from empire.server.core.db import models
+from empire.server.core.db.models import PluginTaskStatus
+from empire.server.core.exceptions import (
+    PluginLoadException,
+)
 from empire.server.core.plugins import BasePlugin
 
+if TYPE_CHECKING:
+    from empire.server.core.plugin_service import PluginService
 
-# REQUIRES chisel server binaries to be placed in the data/misc directory with names chiselserver_linux and chiselserver_mac
+
 class Plugin(BasePlugin):
-    def onLoad(self):
-        self.main_menu = None
-        self.enabled = False
-        self.socks_connections = {}
-        self.connection_times = {}
-        self.port = None
-        self.chisel_proc = None
+    @override
+    def on_load(self, db):
+        self.plugin_service: PluginService = self.main_menu.pluginsv2
+        self._set_binary()
 
-        self.options = {
-            "status": {
-                "Description": "<start/stop/status>",
-                "Required": True,
-                "Value": "start",
-                "SuggestedValues": ["start", "stop", "status"],
-                "Strict": True,
-            },
-            "port": {"Description": "Port number.", "Required": True, "Value": "8080"},
+        self.socks_connections: dict[str, tuple[str, str]] = {}
+        self.chisel_proc = None
+        self.execution_enabled = False
+        self.settings_options = {
+            "port": {"Description": "Port number.", "Required": True, "Value": 8080},
         }
 
-    def execute(self, command):
-        """
-        Any modifications made to the main menu are done here
-        (meant to be overriden by child)
-        """
-        try:
-            results = self.do_chiselserver(command)
-            return results
-        except Exception as e:
-            print(e)
-            return False
-
-    def register(self, main_menu):
-        """
-        Any modifications to the main_menu go here - e.g.
-        registering functions to be run by user commands
-        """
-        main_menu.__class__.do_chiselserver = self.do_chiselserver
-        self.installPath = main_menu.installPath
-        self.main_menu = main_menu
-        self.plugin_service: PluginService = main_menu.pluginsv2
-
-    def do_chiselserver(self, command):
-        """
-        Launch chisel server
-        """
-
-        # Used to get output lines from a subprocess pipe
-        def get_output_lines(pipe):
-            r, w, e = select.select([pipe], [], [], 0)
-            if pipe in r:
-                output = pipe.buffer.read1().decode("utf-8").split("\n")
-                if output[-1] == "":
-                    del output[-1]
-                return output
-            else:
-                return []
-
-        def register_sessions(output_lines):
-            session_lines = [x for x in output_lines if "session#" in x]
-            for line in session_lines:
-                # Ugly string searches
-                session_number = line[line.find("session#") + 8]
-                time = " ".join(line.split(" ")[:2])
-                try:
-                    connection = line.split(": ")[3]
-                    self.socks_connections[session_number] = connection
-                    self.connection_times[session_number] = time
-                except Exception:
-                    # Capture error message or warning
-                    error_message = line[
-                        line.find("session#" + session_number)
-                        + len("session#" + session_number)
-                        + 2 :
-                    ]
-                    self.plugin_service.plugin_socketio_message(
-                        self.info["Name"], "[!] Warning: " + error_message
-                    )
-
-        # Check if the Chisel server is already running
-        if self.chisel_proc:
-            self.enabled = True
+    def _set_binary(self):
+        if platform.system() == "Darwin":
+            self.binary = "chiselserver_darwin"
+        elif platform.system() == "Linux":
+            self.binary = "chiselserver_linux"
         else:
-            self.enabled = False
+            raise PluginLoadException("Unsupported platform")
 
-        # API will pass arguments and still give this message.
-        self.start = command["status"]
-        self.port = command["port"]
+        self.full_path = Path(__file__).parent / self.binary
+        if not self.full_path.exists():
+            raise PluginLoadException("Chisel server binary does not exist")
 
-        if self.start == "status":
-            if self.enabled:
-                register_sessions(get_output_lines(self.chisel_proc.stderr))
-                self.plugin_service.plugin_socketio_message(
-                    self.info["Name"],
-                    "[*] Chisel server is enabled and "
-                    f"listening on port {self.port}",
-                )
-                if not self.socks_connections:
-                    self.plugin_service.plugin_socketio_message(
-                        self.info["Name"], "[*] No connected Chisel clients!"
-                    )
-                else:
-                    self.plugin_service.plugin_socketio_message(
-                        self.info["Name"],
-                        "  Session ID\tConnection Time\t\tConnection"
-                        + "\n  ----------\t---------------\t\t----------",
-                    )
-                    for session in self.connection_times:
-                        self.plugin_service.plugin_socketio_message(
-                            self.info["Name"],
-                            f"  {session}       \t{self.connection_times[session]}  \t{self.socks_connections[session]}"
-                            + "\n",
-                        )
-            else:
-                self.plugin_service.plugin_socketio_message(
-                    self.info["Name"], "[!] Chisel server is disabled"
-                )
+        if not os.access(self.full_path, os.X_OK):
+            self.full_path.chmod(self.full_path.stat().st_mode | 0o100)
 
-        elif self.start == "stop":
-            if self.enabled:
-                self.chisel_proc.kill()
-                self.socks_connections = {}
-                self.connection_times = {}
-                self.plugin_service.plugin_socketio_message(
-                    self.info["Name"], "[!] Stopped Chisel server"
-                )
-            else:
-                self.plugin_service.plugin_socketio_message(
-                    self.info["Name"], "[!] Chisel server is already stopped"
-                )
-
-        elif self.start == "start":
-            if not self.enabled:
-                self.port = command["port"]
-                if platform.system() == "Darwin":
-                    self.binary = "chiselserver_darwin"
-
-                elif platform.system() == "Linux":
-                    self.binary = "chiselserver_linux"
-
-                else:
-                    self.plugin_service.plugin_socketio_message(
-                        self.info["Name"],
-                        "[!] Chisel server unsupported "
-                        f"platform: {platform.system()}",
-                    )
-                    return
-
-                self.fullPath = (
-                    self.installPath + "/plugins/ChiselServer-Plugin/" + self.binary
-                )
-                if not os.path.exists(self.fullPath):
-                    self.plugin_service.plugin_socketio_message(
-                        self.info["Name"],
-                        "[!] Chisel server binary does not " f"exist: {self.fullPath}",
-                    )
-                    return
-                elif not os.access(self.fullPath, os.X_OK):
-                    self.plugin_service.plugin_socketio_message(
-                        self.info["Name"],
-                        "[*] Chisel server binary does not have"
-                        " execute permission -- Setting it now",
-                    )
-                    mode = os.stat(self.fullPath).st_mode
-                    mode += 0o100  # Octal 100
-                    os.chmod(self.fullPath, mode)
-
-                chisel_cmd = [self.fullPath, "server", "--reverse", "--port", self.port]
-                self.chisel_proc = subprocess.Popen(
-                    chisel_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    bufsize=1,
-                    universal_newlines=True,
-                )
-                self.plugin_service.plugin_socketio_message(
-                    self.info["Name"],
-                    f"[+] Chisel server started and listening on http://0.0.0.0:{self.port}",
-                )
-            else:
-                self.plugin_service.plugin_socketio_message(
-                    self.info["Name"], "[!] Chisel server is already started"
-                )
-
-        else:
-            self.plugin_service.plugin_socketio_message(
-                self.info["Name"], "[!] Usage: chiselserver <start|stop|status> [port]"
+    @override
+    def on_settings_change(self, db, settings: dict[str, Any]):
+        if settings["port"] != self.port and self.enabled:
+            self.send_socketio_message(
+                "Port changed, restart the plugin to apply changes"
             )
 
-    def shutdown(self):
-        """
-        Kills additional processes that were spawned
-        """
+    @override
+    def on_start(self, db):
+        self.port = self.current_settings(db)["port"]
+
+        chisel_cmd = [self.full_path, "server", "--reverse", "--port", self.port]
+        self.chisel_proc = subprocess.Popen(
+            chisel_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=1,
+            universal_newlines=True,
+        )
+
+        self.send_socketio_message(
+            f"[+] Chisel server started and listening on http://0.0.0.0:{self.port}",
+        )
+
+    @override
+    def on_stop(self, db):
+        self.send_socketio_message("[!] Stopped Chisel server")
+
         with contextlib.suppress(Exception):
+            self.socks_connections = {}
             self.chisel_proc.kill()
+            self.chisel_proc = None
+
+    @override
+    def execute(self, command, **kwargs):
+        user = kwargs["user"]
+        db = kwargs["db"]
+        input = "Getting connected Chisel clients..."
+        plugin_task = models.PluginTask(
+            plugin_id=self.info.name,
+            input=input,
+            input_full=input,
+            user_id=user.id,
+            status=PluginTaskStatus.completed,
+        )
+        self.register_sessions(self.get_output_lines(self.chisel_proc.stderr))
+        if not self.socks_connections:
+            plugin_task.output = "No connected Chisel clients!"
+        else:
+            output = "  Session ID\tConnection Time\t\tConnection"
+            output += "\n  ----------\t---------------\t\t----------"
+            for session, (connection, time) in self.socks_connections.items():
+                output += f"\n  {session}       \t{connection}  \t{time}"
+
+            plugin_task.output = output
+
+        db.add(plugin_task)
+
+    @staticmethod
+    def get_output_lines(pipe):
+        r, w, e = select.select([pipe], [], [], 0)
+        if pipe in r:
+            output = pipe.buffer.read1().decode("utf-8").split("\n")
+            if output[-1] == "":
+                del output[-1]
+            return output
+        return []
+
+    def register_sessions(self, output_lines):
+        session_lines = [x for x in output_lines if "session#" in x]
+        for line in session_lines:
+            # Ugly string searches
+            session_number = line[line.find("session#") + 8]
+            time = " ".join(line.split(" ")[:2])
+            try:
+                connection = line.split(": ")[3]
+                self.socks_connections[session_number] = (connection, time)
+            except Exception:
+                error_message = line[
+                    line.find("session#" + session_number)
+                    + len("session#" + session_number)
+                    + 2 :
+                ]
+                self.send_socketio_message("[!] Warning: " + error_message)
