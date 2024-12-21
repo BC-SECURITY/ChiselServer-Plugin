@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 class Plugin(BasePlugin):
     @override
     def on_load(self, db):
+        self.port = 0
         self.plugin_service: PluginService = self.main_menu.pluginsv2
         self._set_binary()
 
