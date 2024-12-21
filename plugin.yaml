@@ -7,3 +7,4 @@ software:
 techniques:
   - T1090
 main: chiselserver.py
+auto_start: false
