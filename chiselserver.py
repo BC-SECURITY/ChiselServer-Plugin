@@ -57,7 +57,7 @@ class Plugin(BasePlugin):
     def on_start(self, db):
         self.port = self.current_settings(db)["port"]
 
-        chisel_cmd = [self.full_path, "server", "--reverse", "--port", self.port]
+        chisel_cmd = [self.full_path, "server", "--reverse", "--port", str(self.port)]
         self.chisel_proc = subprocess.Popen(
             chisel_cmd,
             stdout=subprocess.PIPE,
