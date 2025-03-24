@@ -5,14 +5,11 @@ and runs in the background. Use command `start` to configure and start the Chise
 the socks proxy by running the command `stop` or by exiting Empire. Check out the original [Chisel project](https://github.com/jpillora/chisel) 
 and [SharpChisel](https://github.com/shantanu561993/SharpChisel).
 
-## Getting Started
-* To run the plugin, you can download it fom the releases [Releases](https://github.com/BC-SECURITY/ChiselServer-Plugin/releases) page. 
-
 ## Install
 Prerequisites:
-- Empire >= 4.3
+- Empire >= 6.0
 
-1. Git clone the ChiselServer-Plugin repo into the plugins folder.
+1. Install via Starkiller plugin marketplace
 
 ![image](https://user-images.githubusercontent.com/20302208/143662717-651f0220-b4de-4bc6-832a-5444c9ace2e6.png)
 

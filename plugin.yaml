@@ -1,0 +1,10 @@
+name: ChiselServer Plugin
+authors:
+  - name: Kevin Clark
+    link: https://twitter.com/GuhnooPlusLinux
+    handle: '@kevin'
+software:
+techniques:
+  - T1090
+main: chiselserver.py
+auto_start: false
