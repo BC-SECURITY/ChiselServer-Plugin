@@ -11,11 +11,17 @@ Prerequisites:
 
 1. Install via Starkiller plugin marketplace
 
-![image](https://user-images.githubusercontent.com/20302208/143662717-651f0220-b4de-4bc6-832a-5444c9ace2e6.png)
+![image](![image](https://github.com/user-attachments/assets/3160a771-fd12-42f0-86d2-b52776f269e0))
 
 ## Usage
-### Client
-![image](https://user-images.githubusercontent.com/20302208/120249004-3c3f5600-c22e-11eb-962c-c9107c77b624.gif)
+
+1. Once installed go to the installed plugin page
+2. Set the port for the server to listen on. It defaults to 1080
+3. Enable the server with the toggle on the top right
+4. Once running deploy the Invoke-SharpChisel module on the agent
+5. Ensure that the socksproxy4.conf file is properly configured for port 1080
+   ![image](https://github.com/user-attachments/assets/2ff14f2c-e5e4-4387-ab3c-272a43044c8f)
+6. You should now be able to run tooling through proxychains 
 
 ## Contributions
 Plugin created by [Kevin Clark](https://gitlab.com/KevinJClark/invoke-sharpchisel/)
