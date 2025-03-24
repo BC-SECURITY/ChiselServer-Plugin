@@ -11,7 +11,7 @@ Prerequisites:
 
 1. Install via Starkiller plugin marketplace
 
-![image](![image](https://github.com/user-attachments/assets/3160a771-fd12-42f0-86d2-b52776f269e0))
+![image](https://github.com/user-attachments/assets/3160a771-fd12-42f0-86d2-b52776f269e0)
 
 ## Usage
 
