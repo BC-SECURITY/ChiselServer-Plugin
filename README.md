@@ -16,13 +16,15 @@ Prerequisites:
 ## Usage
 
 1. Once installed go to the installed plugin page
-2. Set the port for the server to listen on. It defaults to 1080
+2. Set the port for the server to listen on. It defaults to 8080
 3. Enable the server with the toggle on the top right
 4. Once running deploy the Invoke-SharpChisel module on the agent
 5. Ensure that the socksproxy4.conf file is properly configured for port 1080
    ![image](https://github.com/user-attachments/assets/2ff14f2c-e5e4-4387-ab3c-272a43044c8f)
 6. You should now be able to run tooling through proxychains
-7. Run the plugin at any time to list the currently connected Chisel clients
+7. Run the plugin at any time to list the Chisel sessions opened since the
+   server started. Note that chisel does not log session closes, so a session
+   that has since dropped is still listed.
 
 ## Contributions
 Plugin created by [Kevin Clark](https://gitlab.com/KevinJClark/invoke-sharpchisel/)
