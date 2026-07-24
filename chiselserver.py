@@ -85,7 +85,7 @@ class Plugin(BasePlugin):
         db = kwargs["db"]
         input = "Getting connected Chisel clients..."
         plugin_task = models.PluginTask(
-            plugin_id=self.info.name,
+            plugin_id=self.info.id,
             input=input,
             input_full=input,
             user_id=user.id,
