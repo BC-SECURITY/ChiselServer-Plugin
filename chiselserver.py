@@ -1,5 +1,4 @@
 import collections
-import contextlib
 import logging
 import os
 import platform
@@ -24,9 +23,10 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # A tunnel that came up, e.g.
-#   2026/07/24 00:13:10 server: session#1: tun: proxy#R:127.0.0.1:1080=>socks: Listening
+#   2024/01/01 00:00:00 server: session#1: tun: proxy#R:127.0.0.1:1080=>socks: Listening
 TUNNEL_LINE = re.compile(r"session#(\d+):\s*tun:\s*(.+?):\s*Listening\s*$")
-# Any other line chisel attributes to a session -- rejections and failures.
+# Any other line chisel scopes to a session: status notices at the default
+# verbosity, plus the per-client failures it only logs under -v.
 SESSION_LINE = re.compile(r"session#(\d+)")
 
 
@@ -40,9 +40,11 @@ class Plugin(BasePlugin):
         self.socks_connections: dict[str, tuple[str, str]] = {}
         self.chisel_proc = None
         self.reader_thread = None
-        # Distinguishes "the reader hit EOF because we killed chisel" from
-        # "chisel died on its own", which is otherwise indistinguishable.
-        self.stopping = False
+        # Set whenever EOF on chisel's stderr is expected: while on_start is
+        # still deciding whether the process came up, and through teardown.
+        # Outside those windows EOF means chisel died on its own, which is
+        # otherwise indistinguishable.
+        self.stopping = True
         # Kept so a startup failure can quote chisel's own diagnostic, which
         # is far more useful than an exit code.
         self.recent_stderr = collections.deque(maxlen=10)
@@ -75,25 +77,36 @@ class Plugin(BasePlugin):
     @override
     def on_start(self, db):
         self.port = self.current_settings(db)["port"]
-        self.stopping = False
+        # Stays set until the liveness check below vouches for the process. An
+        # exit inside that window is a startup failure, which this method
+        # reports by raising; clearing the flag any earlier would race the
+        # reader, which reaches EOF within milliseconds of a failed bind --
+        # long before the sleep below returns -- and would announce a crash for
+        # a server that never started.
+        self.stopping = True
         self.recent_stderr.clear()
 
         chisel_cmd = [self.full_path, "server", "--reverse", "--port", str(self.port)]
+        # errors="replace" rather than the default strict: decoding happens in
+        # the reader's `for` header, outside its per-line guard, so a single
+        # undecodable byte would otherwise kill the drain outright.
         self.chisel_proc = subprocess.Popen(
             chisel_cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             bufsize=1,
-            universal_newlines=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
-        # chisel logs a line to stderr for every session it accepts. That pipe
-        # has to be drained continuously or the buffer fills and chisel blocks
-        # on write, which stops it servicing tunnels. Reading it here also keeps
-        # socks_connections current instead of only refreshing on execute().
+        # chisel announces each reverse tunnel on stderr as it comes up, so
+        # this thread is the only thing that records a session -- execute()
+        # renders what it collected and no longer touches the pipe. Draining
+        # also has to be continuous: let the buffer fill and chisel blocks on
+        # write, which stops it servicing tunnels.
         self.reader_thread = threading.Thread(
             target=self._read_sessions,
-            args=(self.chisel_proc.stderr,),
+            args=(self.chisel_proc.stderr, self.chisel_proc),
             daemon=True,
         )
         self.reader_thread.start()
@@ -103,6 +116,8 @@ class Plugin(BasePlugin):
         # port conflict produced a green "started and listening" banner, an
         # empty client list, and no record anywhere: chisel writes "bind:
         # address already in use" to stderr, which is not a session line.
+        # Best-effort: a chisel that takes longer than this to fail still gets
+        # a success banner here, and is caught by the reader's EOF branch.
         time.sleep(0.5)
         if self.chisel_proc.poll() is not None:
             returncode = self.chisel_proc.returncode
@@ -113,31 +128,42 @@ class Plugin(BasePlugin):
                 f"Chisel exited immediately (code {returncode}): {detail}"
             )
 
+        self.stopping = False
         self.send_socketio_message(
             f"[+] Chisel server started and listening on http://0.0.0.0:{self.port}",
         )
 
-    def _read_sessions(self, pipe):
+    def _read_sessions(self, pipe, proc):
         """Drain chisel's stderr, recording sessions as they are announced.
 
         The guard is per line rather than around the loop. An unparseable line
         has to cost that one line: if it ended the loop, stderr would stop
-        being drained, the 64KB pipe buffer would fill, and chisel would block
-        on write -- silently stalling every tunnel while poll() still reports
-        it running and the plugin still reports enabled.
+        being drained, the pipe buffer would fill, and chisel would block on
+        write -- silently stalling every tunnel while poll() still reports it
+        running and the plugin still reports enabled. The outer guard is the
+        backstop for the faults the per-line one cannot see, since the read
+        and decode happen in the ``for`` header rather than the body.
         """
-        for raw_line in pipe:
-            line = raw_line.rstrip("\n")
-            self.recent_stderr.append(line)
-            try:
-                self.register_sessions([line])
-            except Exception:
-                log.exception("Chisel: could not parse stderr line: %r", line)
+        try:
+            for raw_line in pipe:
+                line = raw_line.rstrip("\n")
+                self.recent_stderr.append(line)
+                try:
+                    self.register_sessions([line])
+                except Exception:
+                    log.exception("Chisel: could not parse stderr line: %r", line)
+        except Exception:
+            log.exception("Chisel: stderr reader failed; sessions are now untracked")
 
-        # The loop only ends at EOF, i.e. chisel closed stderr, i.e. it exited.
-        # Nothing else notices that, so a crashed server would otherwise keep
-        # reporting enabled and serving a stale client list all engagement.
-        if not self.stopping:
+        # Otherwise the loop ends only at EOF, i.e. chisel closed stderr, i.e.
+        # it exited. Nothing notices that proactively -- execute() does report
+        # a dead server, but not until the operator next runs the plugin, so
+        # without this a crashed server just sits there looking enabled.
+        #
+        # `is proc` because a reader orphaned by a chisel that outlived SIGKILL
+        # is still parked on the old pipe; when that process finally dies it
+        # must not announce a crash against its healthy replacement.
+        if self.chisel_proc is proc and not self.stopping:
             log.error("Chisel exited unexpectedly; SOCKS tunnels are down")
             self.send_socketio_message("[!] Chisel server exited unexpectedly")
 
@@ -154,9 +180,10 @@ class Plugin(BasePlugin):
                 self.chisel_proc.wait(timeout=5)
                 self.chisel_proc = None
             except subprocess.TimeoutExpired:
-                # SIGKILL is uncatchable, so this means chisel is wedged in
-                # uninterruptible I/O. Keep the handle rather than dropping the
-                # only reference to a live process that still holds the port.
+                # SIGKILL can't be caught or ignored, so a timeout means chisel
+                # is stuck in the kernel -- typically uninterruptible I/O. The
+                # pid goes to the operator because nothing here can reclaim the
+                # port; only killing that process will.
                 log.error(
                     "Chisel (pid %s) did not exit within 5s of SIGKILL and may "
                     "still hold port %s; kill it before re-enabling the plugin.",
@@ -169,11 +196,12 @@ class Plugin(BasePlugin):
                 )
 
         if self.reader_thread is not None:
-            # Close the pipe explicitly so the reader unblocks even when chisel
-            # itself is wedged and never closed its end.
-            if self.chisel_proc is not None and self.chisel_proc.stderr is not None:
-                with contextlib.suppress(OSError):
-                    self.chisel_proc.stderr.close()
+            # Nothing closes the pipe from this side. Closing a BufferedReader
+            # that another thread is blocked reading waits on the buffer lock
+            # that reader holds, so it hangs on_stop rather than freeing it --
+            # and it would only ever run in the wedged case, since a chisel
+            # that died closes its own end. A wedged one leaves the reader
+            # parked on a daemon thread, which costs nothing at exit.
             self.reader_thread.join(timeout=5)
             if self.reader_thread.is_alive():
                 log.error("Chisel stderr reader did not exit within 5s")
@@ -200,15 +228,20 @@ class Plugin(BasePlugin):
             # Don't render a session list we can't vouch for -- an empty list
             # from a dead server reads exactly like a healthy server nobody has
             # connected to yet.
-            plugin_task.status = PluginTaskStatus.error
-            plugin_task.output = (
+            message = (
                 "Chisel server is not running. Disable and re-enable the plugin "
                 "to restart it."
             )
+            plugin_task.status = PluginTaskStatus.error
+            plugin_task.output = message
             db.add(plugin_task)
-            return
+            # Returned, not just recorded: the route renders a None result as
+            # {"detail": "Plugin executed successfully"}, which is the opposite
+            # of what happened.
+            return message
 
-        # Copy under the GIL so the reader thread can't mutate mid-render.
+        # Snapshot: the reader thread writes socks_connections, and iterating
+        # it live can raise "dictionary changed size during iteration".
         connections = dict(self.socks_connections)
         if not connections:
             plugin_task.output = "No Chisel sessions opened yet!"
@@ -221,25 +254,24 @@ class Plugin(BasePlugin):
             plugin_task.output = output
 
         db.add(plugin_task)
+        # The listing goes in the task, not the response: the route would
+        # render a returned string as the operator's whole result.
+        return None
 
     def register_sessions(self, output_lines):
         for line in output_lines:
             tunnel = TUNNEL_LINE.search(line)
             if tunnel:
-                # Multi-digit: the old code took a single character, so
-                # session#10 was filed under "1", silently overwriting
-                # session 1 and losing it from the listing entirely.
                 session_number, connection = tunnel.group(1), tunnel.group(2)
                 opened_at = " ".join(line.split(" ")[:2])
                 self.socks_connections[session_number] = (connection, opened_at)
                 continue
 
-            # Any other session line is chisel rejecting or failing a client.
-            # These used to be split positionally and recorded as live tunnels:
-            # "Failed to handshake (websocket: bad handshake)" happens to have
-            # four ": "-separated segments, so it parsed cleanly and showed up
-            # in the listing with a connection string of "bad handshake)".
-            # Log rather than notify -- this runs on the reader thread, and
-            # send_socketio_message there emits against a foreign event loop.
+            # Only a tunnel announcement opens a session. Everything else
+            # chisel scopes to one is a status or failure notice, and splitting
+            # those positionally is what lists fragments of error messages as
+            # live connections. Log rather than notify: they are per-client and
+            # would flood the operator's notification panel, and the server log
+            # already has them.
             if SESSION_LINE.search(line):
                 log.warning("Chisel: %s", line)
