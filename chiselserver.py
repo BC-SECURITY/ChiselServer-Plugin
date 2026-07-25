@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 TUNNEL_LINE = re.compile(r"session#(\d+):\s*tun:\s*(.+?):\s*Listening\s*$")
 # Any other line chisel scopes to a session: status notices at the default
 # verbosity, plus the per-client failures it only logs under -v.
-SESSION_LINE = re.compile(r"session#(\d+)")
+SESSION_LINE = re.compile(r"session#\d+")
 
 
 class Plugin(BasePlugin):
@@ -144,28 +144,55 @@ class Plugin(BasePlugin):
         backstop for the faults the per-line one cannot see, since the read
         and decode happen in the ``for`` header rather than the body.
         """
+        reader_failed = False
         try:
             for raw_line in pipe:
                 line = raw_line.rstrip("\n")
+                # A reader orphaned by a chisel that outlived SIGKILL is still
+                # parked on the old pipe. Keep draining it -- that is what stops
+                # it blocking on write -- but stop writing state that now
+                # belongs to its replacement, or the old server's sessions get
+                # filed against the new one's listing.
+                if self.chisel_proc is not proc:
+                    continue
                 self.recent_stderr.append(line)
                 try:
                     self.register_sessions([line])
                 except Exception:
                     log.exception("Chisel: could not parse stderr line: %r", line)
         except Exception:
+            reader_failed = True
             log.exception("Chisel: stderr reader failed; sessions are now untracked")
 
-        # Otherwise the loop ends only at EOF, i.e. chisel closed stderr, i.e.
-        # it exited. Nothing notices that proactively -- execute() does report
-        # a dead server, but not until the operator next runs the plugin, so
-        # without this a crashed server just sits there looking enabled.
-        #
-        # `is proc` because a reader orphaned by a chisel that outlived SIGKILL
-        # is still parked on the old pipe; when that process finally dies it
-        # must not announce a crash against its healthy replacement.
-        if self.chisel_proc is proc and not self.stopping:
+        # `is proc` for the same reason as above: when a superseded chisel
+        # finally dies it must not announce a crash against its replacement.
+        if self.chisel_proc is not proc or self.stopping:
+            return
+
+        # Without the outer guard the loop ends only at EOF, i.e. chisel closed
+        # stderr, i.e. it exited. Nothing notices that proactively -- execute()
+        # does report a dead server, but not until the operator next runs the
+        # plugin, so a crashed server would just sit there looking enabled.
+        # The two cases need different words: a reader that died on its own
+        # leaves chisel running but undrained, which stalls it rather than
+        # killing it, and execute() will keep reporting it healthy.
+        if reader_failed:
+            log.error("Chisel is running undrained and will stall; restart it")
+            message = (
+                "[!] Chisel's log reader failed -- the server will stall. "
+                "Disable and re-enable the plugin."
+            )
+        else:
             log.error("Chisel exited unexpectedly; SOCKS tunnels are down")
-            self.send_socketio_message("[!] Chisel server exited unexpectedly")
+            message = "[!] Chisel server exited unexpectedly"
+
+        try:
+            self.send_socketio_message(message)
+        except Exception:
+            # Last statement of a daemon thread with no supervisor: an
+            # unhandled exception here would print a bare traceback in place of
+            # the diagnosis already logged above.
+            log.exception("Chisel: could not notify operators")
 
     @override
     def on_stop(self, db):
@@ -224,7 +251,12 @@ class Plugin(BasePlugin):
             status=PluginTaskStatus.completed,
         )
 
-        if self.chisel_proc is None or self.chisel_proc.poll() is not None:
+        # Bound once: on_stop runs on another request thread and clears the
+        # attribute, and plugin.enabled is only lowered after it returns, so an
+        # execute already past that gate can watch chisel_proc go None between
+        # two reads of it.
+        proc = self.chisel_proc
+        if proc is None or proc.poll() is not None:
             # Don't render a session list we can't vouch for -- an empty list
             # from a dead server reads exactly like a healthy server nobody has
             # connected to yet.
